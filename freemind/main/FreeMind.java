@@ -873,7 +873,7 @@ public class FreeMind extends JFrame implements FreeMindMain {
 		return loggerForClass;
 	}
 
-	public static void main(final String[] args,
+	public static FreeMind run(final String[] args,
 			Properties pDefaultPreferences, Properties pUserPreferences,
 			File pAutoPropertiesFile) {
 		final FreeMind frame = new FreeMind(pDefaultPreferences,
@@ -883,7 +883,7 @@ public class FreeMind extends JFrame implements FreeMindMain {
 		frame.initServer();
 		final FeedBack feedBack;
 		// change here, if you don't like the splash
-		if (true) {
+		if (false) {
 			splash = new FreeMindSplashModern(frame);
 			splash.setVisible(true);
 			feedBack = splash.getFeedBack();
@@ -940,7 +940,7 @@ public class FreeMind extends JFrame implements FreeMindMain {
 		if (splash != null) {
 			splash.setVisible(false);
 		}
-		frame.fireStartupDone();
+		return frame;
 	}
 
 	private void setupSpellChecking() {
@@ -1064,7 +1064,7 @@ public class FreeMind extends JFrame implements FreeMindMain {
 		return getFreemindDirectory() + File.separator + getProperty(PORT_FILE);
 	}
 
-	private void fireStartupDone() {
+	protected void fireStartupDone() {
 		mStartupDone = true;
 		for (Iterator it = mStartupDoneListeners.iterator(); it.hasNext();) {
 			StartupDoneListener listener = (StartupDoneListener) it.next();

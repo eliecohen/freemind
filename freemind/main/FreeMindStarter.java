@@ -23,17 +23,28 @@
 package freemind.main;
 
 import java.awt.Toolkit;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
-import java.lang.reflect.Method;
+import java.io.PrintStream;
 import java.net.Authenticator;
 import java.net.PasswordAuthentication;
 import java.net.URL;
+import java.util.Iterator;
 import java.util.Locale;
 import java.util.Properties;
 
 import javax.swing.JOptionPane;
+
+import org.jibx.runtime.IUnmarshallingContext;
+
+import accessories.plugins.ExportWithXSLT;
+import freemind.common.XmlBindingTools;
+import freemind.controller.actions.generated.instance.Plugin;
+import freemind.controller.actions.generated.instance.PluginAction;
+import freemind.controller.actions.generated.instance.PluginProperty;
+import freemind.main.FreeMindMain.StartupDoneListener;
 
 /**
  * This class should check the java version and start freemind. In order to be
@@ -50,12 +61,11 @@ public class FreeMindStarter {
 	/** Doubled variable on purpose. See header of this class. */
 	static final String JAVA_VERSION = System.getProperty("java.version");
 
-	public static void main(String[] args) {
+	public static void main(final String[] args) {
 		FreeMindStarter starter = new FreeMindStarter();
 		// First check version of Java
 		starter.checkJavaVersion();
 		Properties defaultPreferences = starter.readDefaultPreferences();
-		starter.createUserDirectory(defaultPreferences);
 		Properties userPreferences =
 				starter.readUsersPreferences(defaultPreferences);
 		starter.setDefaultLocale(userPreferences);
@@ -78,31 +88,90 @@ public class FreeMindStarter {
 		} catch (NoSuchFieldException ex) {
 			// System.err.println("Could not get awtAppClassName");
 		}
-
-		// use reflection to call :
-		// FreeMind.main(args, defaultPreferences, userPreferences,
-		// starter.getUserPreferencesFile(defaultPreferences));
+		
+		// Read map file and exported to destination xhtml files
 		try {
-			Class mainClass = Class.forName("freemind.main.FreeMind");
-			Method mainMethod = mainClass.getMethod("main", new Class[] {
-					String[].class, Properties.class, Properties.class,
-					File.class });
-			mainMethod.invoke(null,
-							new Object[] {
-									args,
-									defaultPreferences,
-									userPreferences,
-									starter.getUserPreferencesFile(defaultPreferences) });
+			if (args.length != 2) {
+				System.out.println("Please input <map file> <destination file>");
+				return;
+			}
+			final PrintStream sysOut = System.out;
+			System.setErr(new PrintStream(new ByteArrayOutputStream()));
+			System.out.println("Loading " + args[0]);
+			final FreeMind freeMind = FreeMind.run(new String[]{ "FreeMind.progress.loadMaps", args[0]}, defaultPreferences, userPreferences, starter.getUserPreferencesFile(defaultPreferences));
+			freeMind.registerStartupDoneListener(new StartupDoneListener() {
+				
+				public void startupDone() {
+					System.setOut(sysOut);
+					// Zoom 150%
+					System.out.println("Zoom to 150%...");
+					freeMind.controller.setZoom(150 / 100f);
+					
+					// Export to HTML with clickable mind map
+					try {
+						System.out.println("Exporting to " + args[1]);
+						exportToHTMLWithClickableMap(freeMind, args[1]);
+					} catch (Exception e) {
+						
+					}
+					// Close the application
+					System.out.println("Done and cleanup.. ");
+					freeMind.controller.quit.actionPerformed(null);
+				}
+			});
+			freeMind.fireStartupDone();
+			
 
 		} catch (Exception e) {
-			e.printStackTrace();
 			JOptionPane.showMessageDialog(null,
 					"freemind.main.FreeMind can't be started",
 					"Startup problem", JOptionPane.ERROR_MESSAGE);
 			System.exit(1);
 		}
 	}
+	
+	private static void exportToHTMLWithClickableMap(FreeMind freeMind, String destinationFilePath) throws Exception {
+		ExportWithXSLT exportHook = new ExportWithXSLT();
+		exportHook.setController(freeMind.getController().getModeController());
+		Properties properties = getProperties("accessories/plugins/ExportWithXSLT.xml", "accessories/plugins/ExportWithXSLT_HTML3.properties");
+		exportHook.setProperties(properties);
+		File destinationFile = new File(destinationFilePath);
+		exportHook.transform(destinationFile);
+	}
 
+	private static Properties getProperties(String xmlPluginFile, String pluginLabel)
+			throws Exception {
+		Properties properties = new Properties();
+		IUnmarshallingContext unmarshaller = XmlBindingTools.getInstance()
+				.createUnmarshaller();
+
+		URL pluginURL = ClassLoader.getSystemResource(xmlPluginFile);
+		// unmarshal xml:
+		Plugin plugin = null;
+		InputStream in = pluginURL.openStream();
+		plugin = (Plugin) unmarshaller.unmarshalDocument(in, null);
+		for (Iterator iter = plugin.getListChoiceList().iterator(); iter
+				.hasNext();) {
+
+			Object p = iter.next();
+			if (p instanceof PluginAction) {
+				PluginAction pl = (PluginAction) p;
+				if (!pluginLabel.equals(pl.getLabel()))
+					continue;
+				for (Iterator iterator = pl.getListChoiceList().iterator(); iterator
+						.hasNext();) {
+					Object plObject = (Object) iterator.next();
+					if (plObject instanceof PluginProperty) {
+						PluginProperty property = (PluginProperty) plObject;
+						properties.put(property.getName(), property.getValue());
+					}
+				}
+				break;
+			}
+		}
+		return properties;
+	}
+	
 	private void checkJavaVersion() {
 		System.out.println("Checking Java Version...");
 		if (JAVA_VERSION.compareTo("1.4.0") < 0) {
